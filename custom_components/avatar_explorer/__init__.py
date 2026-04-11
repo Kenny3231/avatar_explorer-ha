@@ -1,14 +1,42 @@
 import logging
+import os
 import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import config_validation as cv
+from homeassistant.components.http import StaticPathConfig
 from .const import DOMAIN
+
+
+
 
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
+    # 1. ENREGISTREMENT DE LA CARTE (Syntaxe calquée sur ton exemple)
+    # L'URL sera : /avatar_explorer/avatar-card.js
+    await hass.http.async_register_static_paths([
+        StaticPathConfig(
+            "/local/avatar-card.js",
+            hass.config.path("custom_components", DOMAIN, "avatar-card.js"),
+            False
+        )
+    ])
+    _LOGGER.debug("Registered static path for avatar-card.js")
+
+    # 2. ENREGISTREMENT AUTOMATIQUE DANS LOVELACE
+    if "lovelace" in hass.data:
+        try:
+            resources = hass.data["lovelace"].resources
+            url = "/local/avatar-card.js"
+            if resources and not any(res.get("url") == url for res in resources.async_items()):
+                await resources.async_create_item({"res_type": "module", "url": url})
+                _LOGGER.debug("Registered Lovelace resource for avatar-card.js")
+        except Exception as e:
+            _LOGGER.warning("Could not auto-register Lovelace resource: %s", e)
+
+    # 3. DÉFINITION DES SERVICES (ACTIONS)
     async def handle_set_avatar(call: ServiceCall):
         user_id = call.data.get("user_id").lower()
         image_path = call.data.get("image_path")
