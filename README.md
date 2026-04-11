@@ -79,3 +79,5 @@ Les suggestions et rapports de bugs sont les bienvenus via les "Issues" du proje
 💡 Note technique
 L'intégration utilise /local/avatar-card.js comme point d'entrée statique pour la carte. Assurez-vous que le fichier avatar-card.js est présent dans le dossier de l'intégration pour que l'auto-enregistrement fonctionne correctement.
 
+💡 Rappel pour l'utilisateur
+Si vous avez configuré la carte pour utiliser le chemin /local/avatar-card.js, assurez-vous que le fichier avatar-card.js est bien présent dans votre dossier www/ de Home Assistant.
