@@ -1,4 +1,4 @@
-# Avatar Explorer 🧔🤵👩‍❤️‍👨
+# Avatar Explorer 🧔
 
 **Avatar Explorer** est une intégration personnalisée pour Home Assistant conçue pour gérer et afficher des avatars (Bitmojis) de manière dynamique. Elle permet de changer votre photo de profil en un clic et d'envoyer des "emojis" (réactions visuelles) vers d'autres utilisateurs ou tablettes de la maison, avec notifications mobiles intégrées.
 
