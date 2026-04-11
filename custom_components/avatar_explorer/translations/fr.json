@@ -1,0 +1,27 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configuration Globale",
+        "data": {
+          "dir": "Dossier des images (ex: images/avatar - SANS le www/)"
+        }
+      },
+      "add_user": {
+        "title": "Ajouter un Utilisateur",
+        "data": {
+          "user_id_folder": "ID du dossier (ex: Kenny)",
+          "label": "Nom affiché (ex: 🧔 Kenny)",
+          "ha_person": "Lier à l'entité Personne HA"
+        }
+      },
+      "choice": {
+        "title": "Utilisateur ajouté !",
+        "menu_options": {
+          "add_user": "Ajouter un autre membre",
+          "finish": "Terminer et sauvegarder"
+        }
+      }
+    }
+  }
+}

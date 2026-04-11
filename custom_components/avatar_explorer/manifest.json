@@ -1,0 +1,9 @@
+{
+  "domain": "avatar_explorer",
+  "name": "Avatar Explorer",
+  "config_flow": true,
+  "documentation": "https://github.com/votre-compte/avatar-explorer",
+  "iot_class": "local_polling",
+  "type": "helper",
+  "version": "1.0.0"
+}

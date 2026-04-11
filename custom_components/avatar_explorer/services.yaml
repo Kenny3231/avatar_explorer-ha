@@ -1,0 +1,28 @@
+set_avatar:
+  name: "Changer l'avatar"
+  description: "Définit l'image de profil d'un utilisateur."
+  fields:
+    user_id:
+      name: "ID Utilisateur"
+      description: "L'ID du dossier (ex: Kenny)"
+      required: true
+      example: "Kenny"
+    image_path:
+      name: "Chemin de l'image"
+      description: "Le chemin complet vers l'image"
+      required: true
+      example: "/local/images/avatar/Kenny/image.png"
+
+send_emoji:
+  name: "Envoyer un Emoji"
+  description: "Envoie un Bitmoji à un autre utilisateur."
+  fields:
+    from_user:
+      name: "De"
+      required: true
+    to_user:
+      name: "Vers"
+      required: true
+    image_path:
+      name: "Image"
+      required: true
