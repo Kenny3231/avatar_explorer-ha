@@ -11,6 +11,7 @@
         "title": "Ajouter un Utilisateur",
         "data": {
           "user_id_folder": "ID du dossier (ex: Kenny)",
+          "bitmoji_id": "Bitmoji ID (ex: 103719295927_9-s5)",
           "label": "Nom affiché (ex: 🧔 Kenny)",
           "ha_person": "Lier à l'entité Personne HA"
         }
@@ -20,6 +21,35 @@
         "menu_options": {
           "add_user": "Ajouter un autre membre",
           "finish": "Terminer et sauvegarder"
+        }
+      },
+      "duo_pair": {
+        "title": "Mode Duo",
+        "description": "Sélectionnez les deux utilisateurs qui forment le mode Duo.",
+        "data": {
+          "duo_user1": "Premier utilisateur",
+          "duo_user2": "Second utilisateur"
+        }
+      },
+      "settings": {
+        "title": "Synchronisation Pose Explorer",
+        "data": {
+          "update_interval_hours": "Intervalle de vérification (heures)",
+          "scale": "Qualité des images (1, 2 ou 4)"
+        }
+      }
+    },
+    "error": {
+      "duo_same_user": "Les deux utilisateurs du mode Duo doivent être différents."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Synchronisation Pose Explorer",
+        "data": {
+          "update_interval_hours": "Intervalle de vérification (heures)",
+          "scale": "Qualité des images (1, 2 ou 4)"
         }
       }
     }

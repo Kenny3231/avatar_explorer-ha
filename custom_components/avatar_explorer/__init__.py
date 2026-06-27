@@ -1,11 +1,14 @@
 import logging
 import os
+from datetime import timedelta
 import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.components.http import StaticPathConfig
-from .const import DOMAIN
+from . import pose_explorer
+from .const import CONF_UPDATE_INTERVAL_HOURS, DEFAULT_UPDATE_INTERVAL_HOURS, DOMAIN
 
 
 
@@ -13,7 +16,7 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    
+
     # 1. ENREGISTREMENT DE LA CARTE (Syntaxe calquée sur ton exemple)
     # L'URL sera : /avatar_explorer/avatar-card.js
     await hass.http.async_register_static_paths([
@@ -61,9 +64,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if notify_service:
             # On enlève "notify." si l'utilisateur l'a laissé
             service_name = notify_service.replace("notify.", "")
-            
+
             await hass.services.async_call("notify", service_name, {
-                #"title": f"Message de {from_label}",                
+                #"title": f"Message de {from_label}",
                 "title": f"Nouveau message",
                 "message": "Tu as reçu un nouveau Emoji !",
                 "data": {
@@ -72,10 +75,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 }
             })
 
+    async def handle_force_reimport(call: ServiceCall):
+        for e in hass.config_entries.async_entries(DOMAIN):
+            hass.async_create_task(pose_explorer.async_check_for_update(hass, e, force=True))
+
     hass.services.async_register(DOMAIN, "set_avatar", handle_set_avatar)
     hass.services.async_register(DOMAIN, "send_emoji", handle_send_emoji)
+    hass.services.async_register(DOMAIN, "force_reimport", handle_force_reimport)
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "text"])
+
+    # 4. VÉRIFICATION PÉRIODIQUE DU CATALOGUE POSE EXPLORER
+    def _schedule_interval():
+        hours = entry.options.get(CONF_UPDATE_INTERVAL_HOURS, DEFAULT_UPDATE_INTERVAL_HOURS)
+        return async_track_time_interval(
+            hass,
+            lambda now: hass.async_create_task(pose_explorer.async_check_for_update(hass, entry)),
+            timedelta(hours=hours),
+        )
+
+    hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})["unsub_interval"] = _schedule_interval()
+    hass.async_create_task(pose_explorer.async_check_for_update(hass, entry))
+
+    async def _async_options_updated(hass, entry):
+        data = hass.data[DOMAIN][entry.entry_id]
+        if data.get("unsub_interval"):
+            data["unsub_interval"]()
+        data["unsub_interval"] = _schedule_interval()
+
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if data and data.get("unsub_interval"):
+        data["unsub_interval"]()
     return await hass.config_entries.async_unload_platforms(entry, ["sensor", "text"])

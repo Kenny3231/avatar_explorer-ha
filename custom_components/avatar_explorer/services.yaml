@@ -26,3 +26,7 @@ send_emoji:
     image_path:
       name: "Image"
       required: true
+
+force_reimport:
+  name: "Réimporter maintenant"
+  description: "Force la vérification et le téléchargement immédiat des poses depuis Pose Explorer, même si le catalogue est déjà à jour."

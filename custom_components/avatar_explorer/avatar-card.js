@@ -17,7 +17,8 @@ class AvatarCard extends LitElement {
       _category: { type: String },
       _currentUser: { type: String },
       _showLightbox: { type: Boolean },
-      _selectedItem: { type: Object }
+      _selectedItem: { type: Object },
+      _lastFetch: { type: Object }
     };
   }
 
@@ -31,6 +32,7 @@ class AvatarCard extends LitElement {
     this._search = "";
     this._category = "";
     this._showLightbox = false;
+    this._lastFetch = null;
   }
 
   setConfig(config) {
@@ -80,9 +82,16 @@ class AvatarCard extends LitElement {
 
     try {
       const response = await fetch(`/local/${baseDir}/${folderName}/metadata_${folderName}.json`);
-      this._metadata = response.ok ? await response.json() : [];
+      if (response.ok) {
+        this._metadata = await response.json();
+        this._lastFetch = { date: new Date(), success: true };
+      } else {
+        this._metadata = [];
+        this._lastFetch = { date: new Date(), success: false, error: `HTTP ${response.status}` };
+      }
     } catch (e) {
       this._metadata = [];
+      this._lastFetch = { date: new Date(), success: false, error: e.message };
     }
     this.requestUpdate();
   }
@@ -119,6 +128,9 @@ class AvatarCard extends LitElement {
         box-sizing: border-box; 
       }
       
+      .fetch-status { font-size: 11px; margin-bottom: 10px; color: var(--avatar-secondary-text); }
+      .fetch-status.error { color: var(--error-color, #db4437); font-weight: bold; }
+
       .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; max-height: 500px; overflow-y: auto; }
       .grid::-webkit-scrollbar { width: 4px; }
       .grid::-webkit-scrollbar-thumb { background: var(--avatar-border); border-radius: 4px; }
@@ -212,7 +224,13 @@ class AvatarCard extends LitElement {
           
           <input type="text" placeholder="Rechercher..." .value="${this._search}" @input="${e => { this._search = e.target.value; this.requestUpdate(); }}">
         </div>
-        
+
+        ${this._lastFetch ? html`
+          <div class="fetch-status ${this._lastFetch.success ? 'ok' : 'error'}" title="${this._lastFetch.error || ''}">
+            ${this._lastFetch.success ? '✅' : '❌'} Dernière récupération : ${this._lastFetch.date.toLocaleString('fr-FR')}
+          </div>
+        ` : ""}
+
         <div class="grid">
           ${filtered.map(item => html`
             <div class="item" @click="${() => { this._selectedItem = item; this._showLightbox = true; }}">
