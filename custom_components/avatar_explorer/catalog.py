@@ -178,6 +178,64 @@ def _select_missing(www_root: str, files: dict, refresh_all: bool) -> list:
     return missing
 
 
+def _scan_orphans(www_root: str, expected) -> list:
+    """Fichiers présents en local mais absents du catalogue (appelé en executor).
+
+    Le périmètre est volontairement étroit : on ne regarde QUE les dossiers que
+    le catalogue alimente lui-même (images/avatar/Kenny, .../Duo...), et sans
+    descendre dans d'éventuels sous-dossiers. Élargir ce scan ferait passer pour
+    orphelin tout le reste de www/ -- une première version de ce code balayait
+    images/ en entier et considérait 3359 fichiers sans rapport comme à jeter.
+    """
+    expected = set(expected)
+    roots = {os.path.dirname(r) for r in expected if os.path.dirname(r)}
+
+    orphans = []
+    for root in sorted(roots):
+        base = os.path.join(www_root, root)
+        if not os.path.isdir(base):
+            continue
+        for name in os.listdir(base):
+            full = os.path.join(base, name)
+            if not os.path.isfile(full):
+                continue
+            relative = f"{root}/{name}"
+            # Les .part sont des temporaires d'une écriture en cours, pas des
+            # orphelins : les compter reviendrait à courir après la synchro.
+            if relative not in expected and not relative.endswith(".part"):
+                orphans.append(relative)
+    return sorted(orphans)
+
+
+def _delete_files(www_root: str, relatives) -> tuple:
+    """Supprime la liste donnée (appelé en executor). Retourne (supprimés, échecs)."""
+    ok = 0
+    failed = []
+    for relative in relatives:
+        try:
+            os.remove(os.path.join(www_root, relative))
+            ok += 1
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Suppression impossible de %s : %s", relative, err)
+            failed.append(relative)
+    return ok, failed
+
+
+def _files_in_use(hass) -> set:
+    """Images actuellement référencées par les entités text.
+
+    Supprimer l'avatar affiché d'un utilisateur casserait son affichage sans
+    qu'aucune erreur ne le signale : ces fichiers sont exclus du nettoyage même
+    s'ils ne sont plus au catalogue.
+    """
+    in_use = set()
+    for state in hass.states.async_all("text"):
+        value = state.state or ""
+        if value.startswith("/local/"):
+            in_use.add(value[len("/local/"):])
+    return in_use
+
+
 async def async_download_files(hass, session, files: dict, refresh_all: bool = False):
     """Télécharge en parallèle uniquement ce qui manque.
 
@@ -420,6 +478,22 @@ async def _async_check_for_update(hass, entry, force: bool, refresh_all: bool) -
     )
     sync_entity.set_stats(downloaded, skipped, failures, len(files))
 
+    # Recensement des orphelins, après téléchargement pour ne pas compter comme
+    # orphelins des fichiers que la synchro venait justement de récupérer.
+    orphans = await hass.async_add_executor_job(
+        _scan_orphans, hass.config.path("www"), set(files)
+    )
+    hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})["orphans"] = orphans
+    sync_entity.set_orphans(orphans)
+    if orphans:
+        _LOGGER.info(
+            "%s fichier(s) local(aux) ne sont plus au catalogue (aucune suppression "
+            "automatique) : %s%s",
+            len(orphans),
+            ", ".join(orphans[:5]),
+            "..." if len(orphans) > 5 else "",
+        )
+
     if failures:
         # On ne mémorise pas l'horodatage distant : la prochaine vérification
         # doit retenter les fichiers manquants plutôt que se croire à jour.
@@ -436,3 +510,69 @@ async def _async_check_for_update(hass, entry, force: bool, refresh_all: bool) -
             downloaded,
             skipped,
         )
+
+
+async def async_delete_orphans(hass, entry) -> tuple:
+    """Supprime les fichiers du catalogue local qui n'y figurent plus.
+
+    Le recensement est TOUJOURS refait à cet instant plutôt que de réutiliser
+    celui de la dernière synchro : agir sur une liste vieille de plusieurs
+    heures reviendrait à supprimer sur la foi d'un état périmé.
+
+    Retourne (supprimés, protégés, échecs).
+    """
+    session = aiohttp_client.async_get_clientsession(hass)
+    scale = entry.options.get(CONF_SCALE, DEFAULT_SCALE)
+    lang = entry.options.get(CONF_LANG, DEFAULT_LANG)
+
+    calls = _build_export_calls(entry, scale, lang)
+    if not calls:
+        _LOGGER.error("Nettoyage annulé : aucun ID Bitmoji configuré")
+        return 0, 0, 0
+
+    # Sans la liste complète attendue, tout serait considéré comme orphelin :
+    # au moindre échec de l'API, on s'arrête plutôt que de supprimer à l'aveugle.
+    files = {}
+    for params in calls:
+        pairs = await async_fetch_file_list(session, params)
+        if pairs is None:
+            _LOGGER.error(
+                "Nettoyage annulé : le catalogue n'a pas pu être récupéré, "
+                "impossible de distinguer les orphelins"
+            )
+            return 0, 0, 0
+        files.update(pairs)
+
+    www_root = hass.config.path("www")
+    orphans = await hass.async_add_executor_job(_scan_orphans, www_root, set(files))
+    if not orphans:
+        _LOGGER.info("Nettoyage : aucun orphelin à supprimer")
+        return 0, 0, 0
+
+    in_use = _files_in_use(hass)
+    protected = [o for o in orphans if o in in_use]
+    to_delete = [o for o in orphans if o not in in_use]
+
+    if protected:
+        _LOGGER.warning(
+            "%s fichier(s) conservé(s) car encore utilisé(s) comme avatar : %s",
+            len(protected),
+            ", ".join(protected),
+        )
+
+    _LOGGER.info("Nettoyage : suppression de %s fichier(s) orphelin(s)", len(to_delete))
+    deleted, failed = await hass.async_add_executor_job(
+        _delete_files, www_root, to_delete
+    )
+
+    store = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})
+    store["orphans"] = protected
+    sync_entity = store.get("sync_entity")
+    if sync_entity is not None:
+        sync_entity.set_orphans(protected)
+
+    _LOGGER.info(
+        "Nettoyage terminé : %s supprimé(s), %s protégé(s), %s échec(s)",
+        deleted, len(protected), len(failed),
+    )
+    return deleted, len(protected), len(failed)

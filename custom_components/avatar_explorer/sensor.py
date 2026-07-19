@@ -94,6 +94,8 @@ class AvatarSyncSensor(SensorEntity, RestoreEntity):
             "deja_presents": None,
             "echecs": None,
             "total_catalogue": None,
+            "orphelins": None,
+            "orphelins_exemples": [],
         }
 
         hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})["sync_entity"] = self
@@ -117,6 +119,16 @@ class AvatarSyncSensor(SensorEntity, RestoreEntity):
                 "status": state.attributes.get("status", "inconnu"),
                 "error": state.attributes.get("error"),
             })
+
+    def set_orphans(self, orphans):
+        """Fichiers locaux absents du catalogue. Jamais supprimés
+        automatiquement : le bouton de nettoyage est le seul à le faire."""
+        self._attrs["orphelins"] = len(orphans)
+        # Liste tronquée : l'état d'une entité HA n'est pas fait pour stocker
+        # des milliers d'entrées (un changement de langue en produit ~1000).
+        self._attrs["orphelins_exemples"] = orphans[:20]
+        self.async_write_ha_state()
+        async_dispatcher_send(self.hass, SIGNAL_SYNC_UPDATED)
 
     def set_stats(self, downloaded, skipped, failures, total):
         """Compteurs du dernier import, pour voir d'un coup d'œil si la synchro
@@ -204,6 +216,8 @@ class AvatarSyncStatusSensor(_SyncChildSensor):
             "deja_presents": attrs.get("deja_presents"),
             "echecs": attrs.get("echecs"),
             "total_catalogue": attrs.get("total_catalogue"),
+            "orphelins": attrs.get("orphelins"),
+            "orphelins_exemples": attrs.get("orphelins_exemples"),
         }
 
 
