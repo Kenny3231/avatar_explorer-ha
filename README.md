@@ -1,6 +1,6 @@
-# Avatar Explorer 🧔
+# Avatar Explorer HA 🧔
 
-**Avatar Explorer** est une intégration personnalisée pour Home Assistant conçue pour gérer et afficher des avatars (Bitmojis) de manière dynamique. Elle permet de changer votre photo de profil en un clic et d'envoyer des "emojis" (réactions visuelles) vers d'autres utilisateurs ou tablettes de la maison, avec notifications mobiles intégrées.
+**Avatar Explorer ** est une intégration personnalisée pour Home Assistant conçue pour gérer et afficher des avatars (Bitmojis) de manière dynamique. Elle permet de changer votre photo de profil en un clic et d'envoyer des "emojis" (réactions visuelles) vers d'autres utilisateurs ou tablettes de la maison, avec notifications mobiles intégrées.
 
 ---
 
@@ -35,7 +35,7 @@ Pour que l'intégration fonctionne, vous avez besoin de fichiers d'avatars et de
 
 ⚠️ **Étape obligatoire actuellement :**
 Les bibliothèques d'avatars ne sont pas encore incluses automatiquement. Vous devez les télécharger manuellement depuis ce dépôt :
-👉 [**GitHub : Pose-Explorer**](https://github.com/Kenny3231/Pose-Explorer)
+👉 [**GitHub : Avatar_Explorer**](https://github.com/Kenny3231/Avatar_Explorer)
 
 *Note : Une automatisation pour télécharger ces avatars directement depuis l'intégration est prévue pour une future mise à jour.*
 
