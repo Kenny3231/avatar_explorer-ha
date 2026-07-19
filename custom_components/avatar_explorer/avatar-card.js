@@ -1,30 +1,19 @@
-// Home Assistant embarque déjà Lit : on le récupère depuis un élément du
-// frontend au lieu de télécharger un second exemplaire depuis un CDN. Charger
-// lit-element depuis unpkg rendait la carte invisible sans accès internet --
-// gênant pour une installation domotique censée fonctionner en local.
+// Lit est chargé depuis un CDN, faute de moyen fiable de réutiliser celui du
+// frontend.
 //
-// Le repli sur le CDN reste là par prudence : si aucun élément HA connu n'est
-// défini au moment du chargement, mieux vaut une carte qui s'affiche avec une
-// dépendance réseau qu'une carte qui ne s'affiche pas du tout.
-let LitElement, html, css;
-
-const _haBase =
-  customElements.get("ha-panel-lovelace") ||
-  customElements.get("hui-view") ||
-  customElements.get("home-assistant-main");
-
-if (_haBase) {
-  LitElement = Object.getPrototypeOf(_haBase);
-  html = LitElement.prototype.html;
-  css = LitElement.prototype.css;
-} else {
-  console.warn(
-    "[avatar-card] Lit introuvable dans le frontend HA, repli sur le CDN unpkg"
-  );
-  ({ LitElement, html, css } = await import(
-    "https://unpkg.com/lit-element@2.4.0/lit-element.js?module"
-  ));
-}
+// NE PAS remplacer par Object.getPrototypeOf(customElements.get("ha-panel-lovelace"))
+// pour en tirer html et css : ce motif date de lit-element 2.x. Depuis Lit 2,
+// et donc a fortiori sur Home Assistant 2026.x qui embarque Lit 3, html et css
+// sont des exports autonomes et n'existent PAS sur LitElement.prototype. Ils
+// valent alors undefined, et la carte échoue au premier appel de html`...`
+// sans rien afficher.
+//
+// Contrepartie assumée : la carte ne s'affiche pas sans accès internet.
+import {
+  LitElement,
+  html,
+  css,
+} from "https://unpkg.com/lit-element@2.4.0/lit-element.js?module";
 
 // Un seul balayage de hass.states partagé par la carte et son éditeur : sur une
 // instance chargée (plusieurs milliers d'entités), le refaire à chaque rendu et
