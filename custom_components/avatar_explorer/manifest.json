@@ -11,7 +11,7 @@
   ],
   "documentation": "https://github.com/Kenny3231/avatar_explorer-ha",
   "icon": "mdi:face-recognition",
-  "integration_type": "helper",
+  "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/Kenny3231/avatar_explorer-ha/issues",
   "version": "1.1.0"
