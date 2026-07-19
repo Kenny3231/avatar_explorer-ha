@@ -1,8 +1,56 @@
-import {
-  LitElement,
-  html,
-  css,
-} from "https://unpkg.com/lit-element@2.4.0/lit-element.js?module";
+// Home Assistant embarque déjà Lit : on le récupère depuis un élément du
+// frontend au lieu de télécharger un second exemplaire depuis un CDN. Charger
+// lit-element depuis unpkg rendait la carte invisible sans accès internet --
+// gênant pour une installation domotique censée fonctionner en local.
+//
+// Le repli sur le CDN reste là par prudence : si aucun élément HA connu n'est
+// défini au moment du chargement, mieux vaut une carte qui s'affiche avec une
+// dépendance réseau qu'une carte qui ne s'affiche pas du tout.
+let LitElement, html, css;
+
+const _haBase =
+  customElements.get("ha-panel-lovelace") ||
+  customElements.get("hui-view") ||
+  customElements.get("home-assistant-main");
+
+if (_haBase) {
+  LitElement = Object.getPrototypeOf(_haBase);
+  html = LitElement.prototype.html;
+  css = LitElement.prototype.css;
+} else {
+  console.warn(
+    "[avatar-card] Lit introuvable dans le frontend HA, repli sur le CDN unpkg"
+  );
+  ({ LitElement, html, css } = await import(
+    "https://unpkg.com/lit-element@2.4.0/lit-element.js?module"
+  ));
+}
+
+// Un seul balayage de hass.states partagé par la carte et son éditeur : sur une
+// instance chargée (plusieurs milliers d'entités), le refaire à chaque rendu et
+// dans chaque classe coûte cher pour un résultat qui bouge très rarement.
+function collectUsers(hass) {
+  if (!hass) return [];
+  return Object.keys(hass.states)
+    .filter((eid) => eid.startsWith("sensor.") && eid.endsWith("_dynamique"))
+    .map((eid) => {
+      const s = hass.states[eid];
+      return {
+        entityId: eid,
+        id: s.attributes.folder_id,
+        label: (s.attributes.friendly_name || "").replace(" Dynamique", ""),
+        directory: s.attributes.directory,
+      };
+    });
+}
+
+// « 🧔 Kenny » -> « Kenny ». L'ancien split(' ')[1] cassait sur les libellés
+// sans emoji ou à prénom composé ; on retire simplement ce qui précède la
+// première lettre ou le premier chiffre.
+function shortLabel(label) {
+  const cleaned = (label || "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
+  return cleaned || label || "";
+}
 
 // ==========================================
 // 1. LA CARTE PRINCIPALE
@@ -18,9 +66,14 @@ class AvatarCard extends LitElement {
       _currentUser: { type: String },
       _showLightbox: { type: Boolean },
       _selectedItem: { type: Object },
-      _lastFetch: { type: Object }
+      _lastFetch: { type: Object },
+      _limit: { type: Number }
     };
   }
+
+  // Nombre d'items rendus d'emblée. Le catalogue en compte ~1260 par dossier :
+  // tout afficher crée autant de noeuds DOM pour une quinzaine de visibles.
+  static get PAGE_SIZE() { return 60; }
 
   static getConfigElement() {
     return document.createElement("avatar-card-editor");
@@ -33,6 +86,23 @@ class AvatarCard extends LitElement {
     this._category = "";
     this._showLightbox = false;
     this._lastFetch = null;
+    this._limit = AvatarCard.PAGE_SIZE;
+    // Dossier dont le chargement a déjà été tenté (réussi OU échoué). Sert à
+    // ne pas relancer le fetch en boucle : déduire l'état d'un _metadata vide
+    // ne distingue pas « pas encore chargé » de « chargé et vide / en erreur ».
+    this._loadedFor = null;
+    this._loading = false;
+    this._usersCache = null;
+    this._usersCacheFor = null;
+    this._trackedIds = null;
+    this._onKeyDown = this._onKeyDown.bind(this);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    // La lightbox pose un écouteur sur document : le retirer si la carte est
+    // détruite alors qu'elle est ouverte, sinon l'écouteur survit à la carte.
+    document.removeEventListener("keydown", this._onKeyDown);
   }
 
   setConfig(config) {
@@ -52,48 +122,132 @@ class AvatarCard extends LitElement {
   }
 
   updated(changedProperties) {
-    if (changedProperties.has("hass") && this.hass && this._currentUser && this._metadata.length === 0) {
+    // hass change en permanence dans HA : la condition doit porter sur ce qui
+    // a réellement été chargé, sinon un dossier vide ou en erreur relance une
+    // requête à chaque tick.
+    if (
+      changedProperties.has("hass") &&
+      this.hass &&
+      this._currentUser &&
+      !this._loading &&
+      this._loadedFor !== this._currentUser
+    ) {
       this._loadMetadata();
     }
   }
 
+  /** Liste des utilisateurs, recalculée seulement quand hass change vraiment. */
   _getUsersFromHass() {
     if (!this.hass) return [];
-    return Object.keys(this.hass.states)
-      .filter(eid => eid.startsWith('sensor.') && eid.endsWith('_dynamique'))
-      .map(eid => {
-        const s = this.hass.states[eid];
-        return {
-          id: s.attributes.folder_id,
-          label: s.attributes.friendly_name.replace(' Dynamique', ''),
-          directory: s.attributes.directory
-        };
-      });
+    if (this._usersCache && this._usersCacheFor === this.hass.states) {
+      return this._usersCache;
+    }
+    this._usersCache = collectUsers(this.hass);
+    this._usersCacheFor = this.hass.states;
+    this._trackedIds = this._usersCache.map((u) => u.entityId);
+    return this._usersCache;
+  }
+
+  /** hass est remplacé à chaque changement d'état de N'IMPORTE quelle entité.
+   *  Sans ce filtre, la carte refiltre 1260 items et redessine la grille à
+   *  chaque fois qu'une lampe change d'état ailleurs dans la maison.
+   *
+   *  Compromis assumé : si un nouveau capteur *_dynamique apparaît sans qu'aucun
+   *  de ceux déjà suivis ne change, il ne sera visible qu'au prochain rendu
+   *  (rechargement du tableau de bord, ou toute autre interaction avec la carte). */
+  shouldUpdate(changedProps) {
+    if (!changedProps.has("hass") || changedProps.size > 1) return true;
+    const old = changedProps.get("hass");
+    if (!old || !this._trackedIds || this._trackedIds.length === 0) return true;
+    return this._trackedIds.some((eid) => old.states[eid] !== this.hass.states[eid]);
+  }
+
+  /** Utilisé par HA pour répartir les cartes en colonnes. */
+  getCardSize() {
+    return 12;
   }
 
   async _loadMetadata() {
-    if (!this._currentUser) return;
-    
-    const isDuo = this._currentUser === 'Duo';
-    const folderName = isDuo ? 'Duo' : this._currentUser;
+    if (!this._currentUser || this._loading) return;
+
+    const target = this._currentUser;
+    const isDuo = target === 'Duo';
+    const folderName = isDuo ? 'Duo' : target;
     const usersHass = this._getUsersFromHass();
-    const userObj = usersHass.find(u => u.id === this._currentUser);
+    const userObj = usersHass.find(u => u.id === target);
     const baseDir = isDuo ? this.config.dir : (userObj ? userObj.directory : this.config.dir);
 
+    // Volontairement non affiché dans la carte : l'état de la récupération est
+    // conservé dans this._lastFetch et tracé en console (F12, filtrer sur
+    // « avatar-card ») pour le diagnostic.
+    const url = `/local/${baseDir}/${folderName}/metadata_${folderName}.json`;
+    const started = performance.now();
+
+    this._loading = true;
     try {
-      const response = await fetch(`/local/${baseDir}/${folderName}/metadata_${folderName}.json`);
+      const response = await fetch(url);
       if (response.ok) {
         this._metadata = await response.json();
-        this._lastFetch = { date: new Date(), success: true };
+        this._lastFetch = {
+          date: new Date(),
+          success: true,
+          url,
+          count: this._metadata.length,
+          ms: Math.round(performance.now() - started),
+        };
+        console.info(
+          `[avatar-card] ${folderName} : ${this._lastFetch.count} poses chargées ` +
+            `en ${this._lastFetch.ms} ms (${url})`
+        );
       } else {
         this._metadata = [];
-        this._lastFetch = { date: new Date(), success: false, error: `HTTP ${response.status}` };
+        this._lastFetch = { date: new Date(), success: false, url, error: `HTTP ${response.status}` };
+        console.error(`[avatar-card] échec ${url} : HTTP ${response.status}`);
       }
     } catch (e) {
       this._metadata = [];
-      this._lastFetch = { date: new Date(), success: false, error: e.message };
+      this._lastFetch = { date: new Date(), success: false, url, error: e.message };
+      console.error(`[avatar-card] échec ${url} :`, e);
+    } finally {
+      this._loading = false;
+      // Marqué même en cas d'échec : c'est ce qui coupe la boucle. Le bouton
+      // « Réessayer » reste le moyen explicite de relancer.
+      this._loadedFor = target;
     }
     this.requestUpdate();
+  }
+
+  _retry() {
+    this._loadedFor = null;
+    this._loadMetadata();
+  }
+
+  _openLightbox(item) {
+    this._selectedItem = item;
+    this._showLightbox = true;
+    document.addEventListener("keydown", this._onKeyDown);
+  }
+
+  _closeLightbox() {
+    this._showLightbox = false;
+    document.removeEventListener("keydown", this._onKeyDown);
+  }
+
+  _onKeyDown(e) {
+    if (e.key === "Escape" && this._showLightbox) {
+      e.stopPropagation();
+      this._closeLightbox();
+    }
+  }
+
+  /** Normalise pour une recherche insensible à la casse ET aux accents :
+   *  le catalogue contient « hâte », « à très vite »... que personne ne tape
+   *  avec les accents dans un champ de recherche. */
+  static _norm(str) {
+    return (str || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
   }
 
   static get styles() {
@@ -128,23 +282,77 @@ class AvatarCard extends LitElement {
         box-sizing: border-box; 
       }
       
-      .fetch-status { font-size: 11px; margin-bottom: 10px; color: var(--avatar-secondary-text); }
-      .fetch-status.error { color: var(--error-color, #db4437); font-weight: bold; }
+      /* Affiché uniquement en cas d'échec : rien ne s'affiche quand tout va
+         bien. Le bouton est le seul moyen de relancer, un dossier n'étant
+         tenté qu'une fois (cf. _loadedFor). */
+      .fetch-error {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: bold;
+        color: var(--error-color, #db4437);
+        border: 1px solid currentColor;
+      }
+      .retry {
+        padding: 4px 10px;
+        font: inherit;
+        cursor: pointer;
+        border-radius: 6px;
+        border: 1px solid currentColor;
+        background: none;
+        color: inherit;
+      }
+      .retry:hover { background: rgba(219, 68, 55, 0.12); }
+      .retry:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+      .load-more {
+        width: 100%;
+        margin-top: 12px;
+        padding: 10px;
+        border: 1px solid var(--avatar-border);
+        border-radius: 10px;
+        background: var(--secondary-background-color);
+        color: var(--avatar-text);
+        font-weight: bold;
+        cursor: pointer;
+      }
+      .load-more:hover { border-color: var(--avatar-primary); }
+
+      .empty {
+        text-align: center;
+        padding: 24px 8px;
+        font-size: 13px;
+        color: var(--avatar-secondary-text);
+      }
 
       .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; max-height: 500px; overflow-y: auto; }
       .grid::-webkit-scrollbar { width: 4px; }
       .grid::-webkit-scrollbar-thumb { background: var(--avatar-border); border-radius: 4px; }
 
-      .item { 
-        background: var(--secondary-background-color); 
-        border-radius: 12px; 
-        padding: 10px; 
-        text-align: center; 
-        cursor: pointer; 
-        transition: 0.2s; 
-        border: 1px solid var(--avatar-border); 
+      .item {
+        /* <button> pour la navigation clavier : on annule ses styles natifs. */
+        display: block;
+        width: 100%;
+        font: inherit;
+        color: inherit;
+        background: var(--secondary-background-color);
+        border-radius: 12px;
+        padding: 10px;
+        text-align: center;
+        cursor: pointer;
+        transition: 0.2s;
+        border: 1px solid var(--avatar-border);
       }
       .item:hover { transform: translateY(-3px); border-color: var(--avatar-primary); }
+      .item:focus-visible {
+        outline: 2px solid var(--avatar-primary);
+        outline-offset: 2px;
+      }
       .item img { width: 100%; aspect-ratio: 1; object-fit: contain; }
       .item span { display: block; font-size: 10px; font-weight: bold; color: var(--avatar-secondary-text); margin-top: 5px; }
       
@@ -203,11 +411,20 @@ class AvatarCard extends LitElement {
     
     const categories = [...new Set((this._metadata || []).flatMap(i => i.categories || []))].sort();
     
+    // Chaque mot saisi doit être présent : « bisou kenny » cherche les deux.
+    const terms = AvatarCard._norm(this._search).split(/\s+/).filter(Boolean);
+
     const filtered = (this._metadata || []).filter(item => {
-      const ms = !this._search || item.titre.toLowerCase().includes(this._search.toLowerCase());
+      // mots_cles contient les synonymes FR et EN du catalogue (« hugs »,
+      // « tu me manques »...) : les ignorer rendait la recherche quasi inutile.
+      const hay = AvatarCard._norm(`${item.titre} ${item.mots_cles || ""}`);
+      const ms = terms.every(t => hay.includes(t));
       const mc = !this._category || (item.categories && item.categories.includes(this._category));
       return ms && mc;
     });
+
+    const shown = filtered.slice(0, this._limit);
+    const remaining = filtered.length - shown.length;
 
     return html`
       <ha-card>
@@ -217,28 +434,48 @@ class AvatarCard extends LitElement {
             ${this.config.show_duo ? html`<option value="Duo" ?selected="${this._currentUser === 'Duo'}">${this.config.duo_label}</option>` : ""}
           </select>
           
-          <select @change="${e => { this._category = e.target.value; this.requestUpdate(); }}">
+          <select @change="${e => { this._category = e.target.value; this._resetPaging(); }}">
             <option value="">Toutes catégories</option>
             ${categories.map(c => html`<option value="${c}" ?selected="${this._category === c}">${c}</option>`)}
           </select>
-          
-          <input type="text" placeholder="Rechercher..." .value="${this._search}" @input="${e => { this._search = e.target.value; this.requestUpdate(); }}">
+
+          <input type="text" placeholder="Rechercher (titre ou mot-clé)..." .value="${this._search}" @input="${e => { this._search = e.target.value; this._resetPaging(); }}">
         </div>
 
-        ${this._lastFetch ? html`
-          <div class="fetch-status ${this._lastFetch.success ? 'ok' : 'error'}" title="${this._lastFetch.error || ''}">
-            ${this._lastFetch.success ? '✅' : '❌'} Dernière récupération : ${this._lastFetch.date.toLocaleString('fr-FR')}
+        ${this._lastFetch && !this._lastFetch.success ? html`
+          <div class="fetch-error" title="${this._lastFetch.url || ''}">
+            <span>⚠️ Liste des poses indisponible (${this._lastFetch.error})</span>
+            <button type="button" class="retry" @click="${() => this._retry()}">Réessayer</button>
           </div>
         ` : ""}
 
         <div class="grid">
-          ${filtered.map(item => html`
-            <div class="item" @click="${() => { this._selectedItem = item; this._showLightbox = true; }}">
-              <img src="/local/${baseDir}/${folderName}/${item.fichier}">
+          ${shown.map(item => html`
+            <button
+              type="button"
+              class="item"
+              title="${item.titre}"
+              @click="${() => this._openLightbox(item)}">
+              <img
+                src="/local/${baseDir}/${folderName}/${item.fichier}"
+                alt="${item.titre}"
+                loading="lazy"
+                decoding="async">
               <span>${item.titre}</span>
-            </div>
+            </button>
           `)}
         </div>
+
+        ${remaining > 0 ? html`
+          <button class="load-more" @click="${() => { this._limit += AvatarCard.PAGE_SIZE; }}">
+            Voir plus (${remaining} restant${remaining > 1 ? "s" : ""})
+          </button>
+        ` : ""}
+
+        ${filtered.length === 0 && this._metadata.length > 0 ? html`
+          <div class="empty">Aucun résultat pour cette recherche.</div>
+        ` : ""}
+
         ${this._showLightbox ? this._renderLightbox(users, baseDir, folderName) : ""}
       </ha-card>
     `;
@@ -249,19 +486,24 @@ class AvatarCard extends LitElement {
     const img = `/local/${baseDir}/${folderName}/${item.fichier}`;
     
     return html`
-      <div class="lightbox" @click="${() => this._showLightbox = false}">
-        <div class="modal" @click="${e => e.stopPropagation()}">
-          <button class="close-btn" @click="${() => this._showLightbox = false}">×</button>
-          <img src="${img}">
+      <div class="lightbox" @click="${() => this._closeLightbox()}">
+        <div
+          class="modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="${item.titre}"
+          @click="${e => e.stopPropagation()}">
+          <button class="close-btn" aria-label="Fermer" @click="${() => this._closeLightbox()}">×</button>
+          <img src="${img}" alt="${item.titre}">
           <h3>${item.titre}</h3>
           
           <div class="btn-list">
             ${this._currentUser === 'Duo' ? html`
               <div class="btn-group">
-                ${users.map(u => html`<button class="btn btn-main" @click="${() => this._trigger('profil', u.user_id_folder)}">PROFIL ${u.label.split(' ')[1] || u.label}</button>`)}
+                ${users.map(u => html`<button class="btn btn-main" @click="${() => this._trigger('profil', u.user_id_folder)}">PROFIL ${shortLabel(u.label)}</button>`)}
               </div>
               <div class="btn-group">
-                ${users.map(u => html`<button class="btn btn-ghost" @click="${() => this._trigger('envoyer', u.user_id_folder)}">ENVOYER ${u.label.split(' ')[1] || u.label}</button>`)}
+                ${users.map(u => html`<button class="btn btn-ghost" @click="${() => this._trigger('envoyer', u.user_id_folder)}">ENVOYER ${shortLabel(u.label)}</button>`)}
               </div>
             ` : html`
               <button class="btn btn-main" @click="${() => this._trigger('profil', this._currentUser)}">METTRE EN PROFIL</button>
@@ -275,10 +517,19 @@ class AvatarCard extends LitElement {
     `;
   }
 
-  _changeUser(e) { 
+  _changeUser(e) {
     this._currentUser = e.target.value;
     this._category = "";
-    this._loadMetadata(); 
+    this._search = "";
+    this._resetPaging();
+    this._loadMetadata();
+  }
+
+  /** Toute modification de filtre doit repartir de la première page, sinon on
+   *  garde le seuil élargi d'une recherche précédente. */
+  _resetPaging() {
+    this._limit = AvatarCard.PAGE_SIZE;
+    this.requestUpdate();
   }
   
   async _trigger(action, targetId) {
@@ -302,7 +553,7 @@ class AvatarCard extends LitElement {
         notify_service: destConfig ? destConfig.notify_service : null
       });
     }
-    this._showLightbox = false;
+    this._closeLightbox();
   }
 }
 
@@ -319,16 +570,7 @@ class AvatarCardEditor extends LitElement {
   }
 
   _getUsersFromHass() {
-    if (!this.hass) return [];
-    return Object.keys(this.hass.states)
-      .filter(eid => eid.startsWith('sensor.') && eid.endsWith('_dynamique'))
-      .map(eid => {
-        const s = this.hass.states[eid];
-        return {
-          id: s.attributes.folder_id,
-          label: s.attributes.friendly_name.replace(' Dynamique', '')
-        };
-      });
+    return collectUsers(this.hass);
   }
 
   render() {

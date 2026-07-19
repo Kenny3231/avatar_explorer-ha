@@ -32,10 +32,10 @@
         }
       },
       "settings": {
-        "title": "Synchronisation Pose Explorer",
+        "title": "Synchronisation Avatar Explorer",
         "data": {
           "update_interval_hours": "Intervalle de vérification (heures)",
-          "scale": "Qualité des images (1, 2 ou 4)"
+          "scale": "Qualité des images"
         }
       }
     },
@@ -46,12 +46,16 @@
   "options": {
     "step": {
       "init": {
-        "title": "Synchronisation Pose Explorer",
+        "title": "Synchronisation Avatar Explorer",
+        "description": "Utilisateurs configurés : {users}.\n\nL'ID Bitmoji se récupère sur https://avatar-explorer.pages.dev. Attention : modifier un ID déclenche un réimport complet des images de cet utilisateur, car les fichiers existants portent l'ancien avatar.",
         "data": {
           "update_interval_hours": "Intervalle de vérification (heures)",
-          "scale": "Qualité des images (1, 2 ou 4)"
+          "scale": "Qualité des images"
         }
       }
+    },
+    "error": {
+      "invalid_bitmoji_id": "ID Bitmoji invalide : lettres, chiffres, tirets et underscores uniquement."
     }
   }
 }

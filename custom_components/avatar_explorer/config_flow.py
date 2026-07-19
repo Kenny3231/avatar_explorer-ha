@@ -1,14 +1,36 @@
+import re
+
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers import selector
 from .const import (
+    BITMOJI_ID_PATTERN,
     CONF_SCALE,
     CONF_UPDATE_INTERVAL_HOURS,
     DEFAULT_DIR,
     DEFAULT_SCALE,
     DEFAULT_UPDATE_INTERVAL_HOURS,
     DOMAIN,
+    SCALE_OPTIONS,
 )
+
+_BITMOJI_RE = re.compile(BITMOJI_ID_PATTERN)
+
+
+def _scale_selector():
+    """Liste déroulante Web / HD / Ultra pour le facteur de résolution."""
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=SCALE_OPTIONS,
+            mode=selector.SelectSelectorMode.LIST,
+        )
+    )
+
+
+def _current_scale(source) -> str:
+    """Valeur courante en chaîne : le sélecteur compare aux valeurs des options,
+    or les configurations existantes ont pu stocker un entier."""
+    return str(source.get(CONF_SCALE, DEFAULT_SCALE))
 
 class AvatarExplorerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Gestion du flux de configuration pour Avatar Explorer."""
@@ -101,7 +123,7 @@ class AvatarExplorerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="settings",
             data_schema=vol.Schema({
                 vol.Required(CONF_UPDATE_INTERVAL_HOURS, default=DEFAULT_UPDATE_INTERVAL_HOURS): vol.Coerce(int),
-                vol.Required(CONF_SCALE, default=DEFAULT_SCALE): vol.In([1, 2, 4]),
+                vol.Required(CONF_SCALE, default=str(DEFAULT_SCALE)): _scale_selector(),
             })
         )
 
@@ -111,22 +133,73 @@ class AvatarExplorerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class AvatarExplorerOptionsFlow(config_entries.OptionsFlow):
-    """Permet de modifier l'intervalle de vérification et la qualité après coup."""
+    """Modifie l'intervalle, la qualité et les IDs Bitmoji après coup."""
+
+    def _field_for(self, user):
+        """Nom du champ de formulaire portant l'ID Bitmoji d'un utilisateur."""
+        return f"bitmoji_{user['user_id_folder']}"
 
     async def async_step_init(self, user_input=None):
+        entry = self.config_entry
+        users = entry.data.get("users", [])
+        errors = {}
+
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            changed = []
+            new_users = []
+            for user in users:
+                field = self._field_for(user)
+                new_id = (user_input.get(field) or "").strip()
+                if new_id and not _BITMOJI_RE.match(new_id):
+                    errors[field] = "invalid_bitmoji_id"
+                if new_id != (user.get("bitmoji_id") or ""):
+                    changed.append(user["user_id_folder"])
+                new_users.append({**user, "bitmoji_id": new_id})
+
+            if not errors:
+                if changed:
+                    # Les IDs vivent dans data (pas options) : c'est la structure
+                    # que lit catalog pour construire les appels export.
+                    self.hass.config_entries.async_update_entry(
+                        entry, data={**entry.data, "users": new_users}
+                    )
+                    # Un ID modifié produit les mêmes noms de fichiers avec un
+                    # autre contenu : sans réécriture forcée, le différentiel
+                    # sauterait tout et l'ancien avatar resterait en place.
+                    self.hass.data.setdefault(DOMAIN, {}).setdefault(
+                        entry.entry_id, {}
+                    )["pending_refresh_all"] = True
+
+                return self.async_create_entry(data={
+                    CONF_UPDATE_INTERVAL_HOURS: user_input[CONF_UPDATE_INTERVAL_HOURS],
+                    CONF_SCALE: user_input[CONF_SCALE],
+                })
+
+        schema = {
+            vol.Required(
+                CONF_UPDATE_INTERVAL_HOURS,
+                default=entry.options.get(CONF_UPDATE_INTERVAL_HOURS, DEFAULT_UPDATE_INTERVAL_HOURS),
+            ): vol.Coerce(int),
+            vol.Required(
+                CONF_SCALE,
+                default=_current_scale(entry.options),
+            ): _scale_selector(),
+        }
+        # Un champ par utilisateur configuré, pré-rempli avec l'ID actuel.
+        for user in users:
+            schema[
+                vol.Optional(
+                    self._field_for(user),
+                    description={"suggested_value": user.get("bitmoji_id", "")},
+                    default="",
+                )
+            ] = str
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({
-                vol.Required(
-                    CONF_UPDATE_INTERVAL_HOURS,
-                    default=self.config_entry.options.get(CONF_UPDATE_INTERVAL_HOURS, DEFAULT_UPDATE_INTERVAL_HOURS),
-                ): vol.Coerce(int),
-                vol.Required(
-                    CONF_SCALE,
-                    default=self.config_entry.options.get(CONF_SCALE, DEFAULT_SCALE),
-                ): vol.In([1, 2, 4]),
-            })
+            data_schema=vol.Schema(schema),
+            errors=errors,
+            description_placeholders={
+                "users": ", ".join(u["user_id_folder"] for u in users) or "aucun"
+            },
         )
