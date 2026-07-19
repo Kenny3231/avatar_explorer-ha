@@ -118,13 +118,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             data["unsub_interval"]()
         data["unsub_interval"] = _schedule_interval()
 
-        # Le flux d'options pose ce drapeau quand un ID Bitmoji a changé : les
-        # fichiers existants portent les mêmes noms mais l'ancien avatar, il
-        # faut donc les réécrire au lieu de se fier au différentiel.
+        # Drapeaux posés par le flux d'options.
+        #
+        # pending_refresh_all : ID Bitmoji ou qualité modifiés. Les fichiers
+        # générés portent les mêmes noms mais un contenu différent, donc le
+        # différentiel les sauterait tous : il faut tout réécrire.
         if data.pop("pending_refresh_all", False):
-            _LOGGER.info("ID Bitmoji modifié : réimport complet déclenché")
+            _LOGGER.info("ID Bitmoji ou qualité modifiés : réimport complet déclenché")
             hass.async_create_task(
                 catalog.async_check_for_update(hass, entry, force=True, refresh_all=True)
+            )
+        # pending_resync : langue modifiée. Les titres étant traduits, les noms
+        # de fichiers changent : le différentiel suffit, mais il faut forcer un
+        # passage car l'horodatage du catalogue distant, lui, n'a pas bougé.
+        elif data.pop("pending_resync", False):
+            _LOGGER.info("Langue modifiée : synchronisation déclenchée")
+            hass.async_create_task(
+                catalog.async_check_for_update(hass, entry, force=True)
             )
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))

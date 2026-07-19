@@ -23,8 +23,10 @@ from homeassistant.helpers import aiohttp_client
 
 from .const import (
     AIDE_JSON_URL,
+    CONF_LANG,
     CONF_SCALE,
     DEFAULT_DIR,
+    DEFAULT_LANG,
     DEFAULT_SCALE,
     DOMAIN,
     EXPORT_API_URL,
@@ -250,7 +252,7 @@ async def async_download_files(hass, session, files: dict, refresh_all: bool = F
     return downloaded, skipped + absent, failures
 
 
-def _build_export_calls(entry, scale) -> list:
+def _build_export_calls(entry, scale, lang) -> list:
     """Construit les appels /api/export à effectuer.
 
     Un appel mode=duo génère déjà les DEUX dossiers solo en plus du dossier Duo
@@ -263,7 +265,7 @@ def _build_export_calls(entry, scale) -> list:
     duo_pair = entry.data.get("duo_pair")
     # scale est stocké en entier dans les options, mais aiohttp exige des
     # valeurs de chaîne dans params.
-    common = {"dir": base_dir, "scale": str(scale)}
+    common = {"dir": base_dir, "scale": str(scale), "lang": lang}
 
     # Les entrées créées avant l'ajout du mode Duo n'ont pas de duo_pair. Avec
     # exactement deux utilisateurs exploitables, le duo est sans ambiguïté :
@@ -369,7 +371,8 @@ async def _async_check_for_update(hass, entry, force: bool, refresh_all: bool) -
         return
 
     scale = entry.options.get(CONF_SCALE, DEFAULT_SCALE)
-    calls = _build_export_calls(entry, scale)
+    lang = entry.options.get(CONF_LANG, DEFAULT_LANG)
+    calls = _build_export_calls(entry, scale, lang)
     if not calls:
         configured = [u.get("user_id_folder", "?") for u in entry.data.get("users", [])]
         _fail(

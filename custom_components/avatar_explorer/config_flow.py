@@ -5,12 +5,15 @@ from homeassistant import config_entries
 from homeassistant.helpers import selector
 from .const import (
     BITMOJI_ID_PATTERN,
+    CONF_LANG,
     CONF_SCALE,
     CONF_UPDATE_INTERVAL_HOURS,
     DEFAULT_DIR,
+    DEFAULT_LANG,
     DEFAULT_SCALE,
     DEFAULT_UPDATE_INTERVAL_HOURS,
     DOMAIN,
+    LANG_OPTIONS,
     SCALE_OPTIONS,
 )
 
@@ -31,6 +34,18 @@ def _current_scale(source) -> str:
     """Valeur courante en chaîne : le sélecteur compare aux valeurs des options,
     or les configurations existantes ont pu stocker un entier."""
     return str(source.get(CONF_SCALE, DEFAULT_SCALE))
+
+
+def _lang_selector():
+    """Langue du catalogue. Elle ne change pas que l'affichage : les noms de
+    fichiers dérivent du titre traduit, donc en changer télécharge un jeu
+    d'images entièrement différent."""
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=LANG_OPTIONS,
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
 
 class AvatarExplorerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Gestion du flux de configuration pour Avatar Explorer."""
@@ -116,6 +131,7 @@ class AvatarExplorerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 options={
                     CONF_UPDATE_INTERVAL_HOURS: user_input[CONF_UPDATE_INTERVAL_HOURS],
                     CONF_SCALE: user_input[CONF_SCALE],
+                    CONF_LANG: user_input[CONF_LANG],
                 },
             )
 
@@ -124,6 +140,7 @@ class AvatarExplorerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({
                 vol.Required(CONF_UPDATE_INTERVAL_HOURS, default=DEFAULT_UPDATE_INTERVAL_HOURS): vol.Coerce(int),
                 vol.Required(CONF_SCALE, default=str(DEFAULT_SCALE)): _scale_selector(),
+                vol.Required(CONF_LANG, default=DEFAULT_LANG): _lang_selector(),
             })
         )
 
@@ -157,22 +174,37 @@ class AvatarExplorerOptionsFlow(config_entries.OptionsFlow):
                 new_users.append({**user, "bitmoji_id": new_id})
 
             if not errors:
+                store = self.hass.data.setdefault(DOMAIN, {}).setdefault(
+                    entry.entry_id, {}
+                )
+
                 if changed:
                     # Les IDs vivent dans data (pas options) : c'est la structure
                     # que lit catalog pour construire les appels export.
                     self.hass.config_entries.async_update_entry(
                         entry, data={**entry.data, "users": new_users}
                     )
-                    # Un ID modifié produit les mêmes noms de fichiers avec un
-                    # autre contenu : sans réécriture forcée, le différentiel
-                    # sauterait tout et l'ancien avatar resterait en place.
-                    self.hass.data.setdefault(DOMAIN, {}).setdefault(
-                        entry.entry_id, {}
-                    )["pending_refresh_all"] = True
+
+                scale_changed = str(user_input[CONF_SCALE]) != _current_scale(entry.options)
+                lang_changed = user_input[CONF_LANG] != entry.options.get(
+                    CONF_LANG, DEFAULT_LANG
+                )
+
+                # ID Bitmoji ou qualité modifiés : les noms de fichiers générés
+                # sont identiques, seul leur contenu change. Le différentiel les
+                # sauterait tous, il faut donc forcer la réécriture.
+                if changed or scale_changed:
+                    store["pending_refresh_all"] = True
+                # Changer de langue produit au contraire des noms différents
+                # (les titres sont traduits) : le différentiel fait correctement
+                # son travail, il suffit de déclencher un passage.
+                elif lang_changed:
+                    store["pending_resync"] = True
 
                 return self.async_create_entry(data={
                     CONF_UPDATE_INTERVAL_HOURS: user_input[CONF_UPDATE_INTERVAL_HOURS],
                     CONF_SCALE: user_input[CONF_SCALE],
+                    CONF_LANG: user_input[CONF_LANG],
                 })
 
         schema = {
@@ -184,6 +216,10 @@ class AvatarExplorerOptionsFlow(config_entries.OptionsFlow):
                 CONF_SCALE,
                 default=_current_scale(entry.options),
             ): _scale_selector(),
+            vol.Required(
+                CONF_LANG,
+                default=entry.options.get(CONF_LANG, DEFAULT_LANG),
+            ): _lang_selector(),
         }
         # Un champ par utilisateur configuré, pré-rempli avec l'ID actuel.
         for user in users:

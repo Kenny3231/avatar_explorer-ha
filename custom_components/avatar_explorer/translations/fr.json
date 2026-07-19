@@ -35,8 +35,10 @@
         "title": "Synchronisation Avatar Explorer",
         "data": {
           "update_interval_hours": "Intervalle de vérification (heures)",
-          "scale": "Qualité des images"
-        }
+          "scale": "Qualité des images",
+          "lang": "Langue du catalogue"
+        },
+        "description": "La langue détermine le titre et les mots-clés des poses, et donc le nom des fichiers téléchargés. Chaque langue propose un nombre de poses différent (1261 en français, 1975 en anglais)."
       }
     },
     "error": {
@@ -47,10 +49,11 @@
     "step": {
       "init": {
         "title": "Synchronisation Avatar Explorer",
-        "description": "Utilisateurs configurés : {users}.\n\nL'ID Bitmoji se récupère sur https://avatar-explorer.pages.dev. Attention : modifier un ID déclenche un réimport complet des images de cet utilisateur, car les fichiers existants portent l'ancien avatar.",
+        "description": "Utilisateurs configurés : {users}.\n\nL'ID Bitmoji se récupère sur https://avatar-explorer.pages.dev.\n\n⚠️ Modifier l'ID Bitmoji ou la qualité relance un réimport complet (mêmes noms de fichiers, contenu différent).\n\n⚠️ Changer de langue télécharge un jeu d'images entièrement nouveau : les noms de fichiers dérivent des titres traduits. Les anciennes images restent sur le disque (elles ne sont pas supprimées) et les avatars actuellement affichés devront être re-sélectionnés.",
         "data": {
           "update_interval_hours": "Intervalle de vérification (heures)",
-          "scale": "Qualité des images"
+          "scale": "Qualité des images",
+          "lang": "Langue du catalogue"
         }
       }
     },
