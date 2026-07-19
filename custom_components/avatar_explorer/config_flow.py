@@ -80,7 +80,7 @@ class AvatarExplorerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="add_user",
             data_schema=vol.Schema({
                 vol.Required("user_id_folder"): str,  # Nom du dossier (ex: Kenny)
-                vol.Required("bitmoji_id"): str,  # ID Bitmoji (ex: 103719295927_9-s5)
+                vol.Required("bitmoji_id"): str,  # ID Bitmoji (ex: 123456789012_1-s5)
                 vol.Optional("ha_person"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="person")
                 ),

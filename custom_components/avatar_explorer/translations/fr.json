@@ -11,11 +11,11 @@
         "title": "Ajouter un Utilisateur",
         "data": {
           "user_id_folder": "ID du dossier (ex: Kenny)",
-          "bitmoji_id": "ID Bitmoji (ex : 103719295927_14-s5)",
+          "bitmoji_id": "ID Bitmoji (ex : 123456789012_1-s5)",
           "label": "Nom affiché (ex: 🧔 Kenny)",
           "ha_person": "Lier à l'entité Personne HA"
         },
-        "description": "L'ID Bitmoji ne se trouve pas sur avatar-explorer.pages.dev : ce site sert à télécharger les images, pas à obtenir l'ID. Il se relève sur bitmoji.com, une fois connecté, via les outils de développement du navigateur (F12). Format attendu : lettres, chiffres, tirets et underscores, par exemple 103719295927_14-s5."
+        "description": "L'ID Bitmoji ne se trouve pas sur avatar-explorer.pages.dev : ce site sert à télécharger les images, pas à obtenir l'ID. Il se relève sur bitmoji.com, une fois connecté, via les outils de développement du navigateur (F12). Format attendu : lettres, chiffres, tirets et underscores, par exemple 123456789012_1-s5."
       },
       "choice": {
         "title": "Utilisateur ajouté !",
@@ -50,7 +50,7 @@
     "step": {
       "init": {
         "title": "Synchronisation Avatar Explorer",
-        "description": "Utilisateurs configurés : {users}.\n\nL'ID Bitmoji ne se trouve pas sur avatar-explorer.pages.dev : ce site sert à télécharger les images, pas à obtenir l'ID. Il se relève sur bitmoji.com, une fois connecté, via les outils de développement du navigateur (F12). Format attendu : lettres, chiffres, tirets et underscores, par exemple 103719295927_14-s5.\n\n⚠️ Modifier l'ID Bitmoji ou la qualité relance un réimport complet (mêmes noms de fichiers, contenu différent).\n\n⚠️ Changer de langue télécharge un jeu d'images entièrement nouveau : les noms de fichiers dérivent des titres traduits. Les anciennes images restent sur le disque et les avatars actuellement affichés devront être re-sélectionnés.",
+        "description": "Utilisateurs configurés : {users}.\n\nL'ID Bitmoji ne se trouve pas sur avatar-explorer.pages.dev : ce site sert à télécharger les images, pas à obtenir l'ID. Il se relève sur bitmoji.com, une fois connecté, via les outils de développement du navigateur (F12). Format attendu : lettres, chiffres, tirets et underscores, par exemple 123456789012_1-s5.\n\n⚠️ Modifier l'ID Bitmoji ou la qualité relance un réimport complet (mêmes noms de fichiers, contenu différent).\n\n⚠️ Changer de langue télécharge un jeu d'images entièrement nouveau : les noms de fichiers dérivent des titres traduits. Les anciennes images restent sur le disque et les avatars actuellement affichés devront être re-sélectionnés.",
         "data": {
           "update_interval_hours": "Intervalle de vérification (heures)",
           "scale": "Qualité des images",
