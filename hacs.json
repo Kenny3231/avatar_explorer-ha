@@ -1,7 +1,5 @@
 {
   "name": "Avatar Explorer",
-  "content_type": "integration",
-  "domains": ["avatar_explorer"],
   "homeassistant": "2026.1.0",
   "render_readme": true
 }
