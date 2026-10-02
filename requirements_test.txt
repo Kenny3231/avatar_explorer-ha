@@ -1,0 +1,5 @@
+# Dépendances de test (CI). La version du plugin fixe celle de Home Assistant
+# (0.13.368 -> homeassistant 2026.10.0b0, Python >= 3.14). Épinglées pour des
+# résultats reproductibles ; Dependabot (pip) propose les montées de version.
+pytest-homeassistant-custom-component==0.13.368
+ruff==0.16.9
