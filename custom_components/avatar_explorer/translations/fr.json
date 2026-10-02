@@ -2,20 +2,26 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configuration Globale",
+        "title": "Avatar Explorer",
+        "description": "Dossier où sont rangées les poses, relatif au dossier www/ de Home Assistant.",
         "data": {
-          "dir": "Dossier des images (ex: images/avatar - SANS le www/)"
+          "dir": "Dossier des images"
+        },
+        "data_description": {
+          "dir": "SANS le www/ de tête, par exemple images/avatar. Lettres, chiffres, _, - et / uniquement."
         }
       },
       "add_user": {
-        "title": "Ajouter un Utilisateur",
+        "title": "Ajouter un utilisateur",
+        "description": "L'ID Bitmoji ne se trouve pas sur avatar-explorer.pages.dev : ce site sert à télécharger les images, pas à obtenir l'ID. Il se relève sur bitmoji.com, une fois connecté, via les outils de développement du navigateur (F12). Format attendu : lettres, chiffres, tirets et underscores, par exemple 123456789012_1-s5.",
         "data": {
-          "user_id_folder": "ID du dossier (ex: Kenny)",
-          "bitmoji_id": "ID Bitmoji (ex : 123456789012_1-s5)",
-          "label": "Nom affiché (ex: 🧔 Kenny)",
-          "ha_person": "Lier à l'entité Personne HA"
+          "user_id_folder": "Nom du dossier",
+          "bitmoji_id": "ID Bitmoji",
+          "ha_person": "Personne Home Assistant liée"
         },
-        "description": "L'ID Bitmoji ne se trouve pas sur avatar-explorer.pages.dev : ce site sert à télécharger les images, pas à obtenir l'ID. Il se relève sur bitmoji.com, une fois connecté, via les outils de développement du navigateur (F12). Format attendu : lettres, chiffres, tirets et underscores, par exemple 123456789012_1-s5."
+        "data_description": {
+          "user_id_folder": "Lettres, chiffres, _ et - (32 caractères au plus), par exemple Kenny. « Duo » est réservé."
+        }
       },
       "choice": {
         "title": "Utilisateur ajouté !",
@@ -34,16 +40,24 @@
       },
       "settings": {
         "title": "Synchronisation Avatar Explorer",
+        "description": "La langue détermine le titre et les mots-clés des poses, et donc le nom des fichiers téléchargés. Chaque langue propose un nombre de poses différent (1261 en français, 1975 en anglais).",
         "data": {
-          "update_interval_hours": "Intervalle de vérification (heures)",
+          "update_interval_hours": "Intervalle de vérification",
           "scale": "Qualité des images",
           "lang": "Langue du catalogue"
-        },
-        "description": "La langue détermine le titre et les mots-clés des poses, et donc le nom des fichiers téléchargés. Chaque langue propose un nombre de poses différent (1261 en français, 1975 en anglais)."
+        }
       }
     },
     "error": {
+      "invalid_dir": "Dossier invalide : lettres, chiffres, _, - et / uniquement (ni « .. », ni segment vide).",
+      "invalid_folder": "Nom de dossier invalide : lettres, chiffres, _ et - uniquement, 32 caractères au plus.",
+      "reserved_folder": "« Duo » est réservé au dossier du mode Duo.",
+      "duplicate_folder": "Ce nom de dossier est déjà utilisé par un autre utilisateur.",
+      "invalid_bitmoji_id": "ID Bitmoji invalide : lettres, chiffres, tirets et underscores uniquement.",
       "duo_same_user": "Les deux utilisateurs du mode Duo doivent être différents."
+    },
+    "abort": {
+      "single_instance_allowed": "Avatar Explorer est déjà configuré. Utilisez « Configurer » pour modifier les réglages."
     }
   },
   "options": {
@@ -52,7 +66,7 @@
         "title": "Synchronisation Avatar Explorer",
         "description": "Utilisateurs configurés : {users}.\n\nL'ID Bitmoji ne se trouve pas sur avatar-explorer.pages.dev : ce site sert à télécharger les images, pas à obtenir l'ID. Il se relève sur bitmoji.com, une fois connecté, via les outils de développement du navigateur (F12). Format attendu : lettres, chiffres, tirets et underscores, par exemple 123456789012_1-s5.\n\n⚠️ Modifier l'ID Bitmoji ou la qualité relance un réimport complet (mêmes noms de fichiers, contenu différent).\n\n⚠️ Changer de langue télécharge un jeu d'images entièrement nouveau : les noms de fichiers dérivent des titres traduits. Les anciennes images restent sur le disque et les avatars actuellement affichés devront être re-sélectionnés.",
         "data": {
-          "update_interval_hours": "Intervalle de vérification (heures)",
+          "update_interval_hours": "Intervalle de vérification",
           "scale": "Qualité des images",
           "lang": "Langue du catalogue"
         }
@@ -60,6 +74,89 @@
     },
     "error": {
       "invalid_bitmoji_id": "ID Bitmoji invalide : lettres, chiffres, tirets et underscores uniquement."
+    }
+  },
+  "selector": {
+    "scale": {
+      "options": {
+        "1": "Web — le plus léger (recommandé)",
+        "2": "HD — deux fois plus détaillé",
+        "4": "Ultra — quatre fois plus détaillé, fichiers lourds"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sync_status": {
+        "state": {
+          "inconnu": "Inconnu",
+          "a_jour": "À jour",
+          "partielle": "Partielle",
+          "erreur": "Erreur"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "unknown_user": {
+      "message": "Utilisateur Avatar Explorer inconnu : {user}."
+    },
+    "unknown_notify_service": {
+      "message": "Service de notification introuvable : {service}."
+    },
+    "not_loaded": {
+      "message": "Aucune entrée Avatar Explorer n'est chargée."
+    },
+    "invalid_image_path": {
+      "message": "Chemin d'image invalide : {value}. Format attendu : /local/DOSSIER/UTILISATEUR/POSE.png."
+    }
+  },
+  "services": {
+    "set_avatar": {
+      "name": "Changer l'avatar",
+      "description": "Définit l'image de profil d'un utilisateur (entité text.avatar_UTILISATEUR).",
+      "fields": {
+        "user_id": {
+          "name": "Utilisateur",
+          "description": "Nom du dossier de l'utilisateur, tel que configuré dans l'intégration (ex : Kenny)."
+        },
+        "image_path": {
+          "name": "Chemin de l'image",
+          "description": "Chemin /local/... d'une image PNG du catalogue."
+        }
+      }
+    },
+    "send_emoji": {
+      "name": "Envoyer un emoji",
+      "description": "Envoie une pose à un autre utilisateur (entité text.emoji_recu_UTILISATEUR), avec notification facultative.",
+      "fields": {
+        "to_user": {
+          "name": "Destinataire",
+          "description": "Nom du dossier de l'utilisateur destinataire (ex : Lea)."
+        },
+        "image_path": {
+          "name": "Chemin de l'image",
+          "description": "Chemin /local/... d'une image PNG du catalogue."
+        },
+        "from_label": {
+          "name": "Expéditeur",
+          "description": "Libellé de l'expéditeur, transmis par la carte (informatif)."
+        },
+        "notify_service": {
+          "name": "Service de notification",
+          "description": "Service notify à appeler en plus, avec ou sans le préfixe « notify. » (ex : mobile_app_telephone_de_lea). Laisser vide pour ne pas notifier."
+        }
+      }
+    },
+    "force_reimport": {
+      "name": "Réimporter maintenant",
+      "description": "Force la vérification et le téléchargement des poses manquantes depuis Avatar Explorer, même si le catalogue est déjà à jour."
+    }
+  },
+  "issues": {
+    "lovelace_yaml_resource": {
+      "title": "Carte Avatar Explorer : ressource Lovelace à mettre à jour",
+      "description": "Vos tableaux de bord sont en mode YAML : l'intégration ne peut pas mettre à jour elle-même la ressource de la carte. La carte est désormais servie à une nouvelle adresse : l'ancienne, {legacy_url}, ne fonctionne plus.\n\nDans configuration.yaml, sous lovelace: resources:, remplacez l'entrée de la carte par :\n\n- url: {url}\n  type: module\n\nPuis redémarrez Home Assistant. Ce message disparaît dès que la ressource est à jour."
     }
   }
 }

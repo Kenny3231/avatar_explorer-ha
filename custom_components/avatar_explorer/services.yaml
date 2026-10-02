@@ -1,32 +1,58 @@
+# Les noms d'actions et de champs sont ceux qu'appelle la carte
+# (avatar-card.js) : ne pas les renommer. Les libellés ci-dessous servent de
+# repli ; Home Assistant affiche en priorité ceux de translations/*.json.
 set_avatar:
   name: "Changer l'avatar"
-  description: "Définit l'image de profil d'un utilisateur."
+  description: "Définit l'image de profil d'un utilisateur (entité text.avatar_UTILISATEUR)."
   fields:
     user_id:
-      name: "ID Utilisateur"
-      description: "L'ID du dossier (ex: Kenny)"
+      name: "Utilisateur"
+      description: "Nom du dossier de l'utilisateur, tel que configuré dans l'intégration (ex : Kenny)."
       required: true
       example: "Kenny"
+      selector:
+        text:
     image_path:
       name: "Chemin de l'image"
-      description: "Le chemin complet vers l'image"
+      description: "Chemin /local/... d'une image PNG du catalogue."
       required: true
-      example: "/local/images/avatar/Kenny/image.png"
+      example: "/local/images/avatar/Kenny/Kenny__coucou.png"
+      selector:
+        text:
 
 send_emoji:
-  name: "Envoyer un Emoji"
-  description: "Envoie un Bitmoji à un autre utilisateur."
+  name: "Envoyer un emoji"
+  description: "Envoie une pose à un autre utilisateur (entité text.emoji_recu_UTILISATEUR), avec notification facultative."
   fields:
-    from_user:
-      name: "De"
-      required: true
     to_user:
-      name: "Vers"
+      name: "Destinataire"
+      description: "Nom du dossier de l'utilisateur destinataire (ex : Lea)."
       required: true
+      example: "Lea"
+      selector:
+        text:
     image_path:
-      name: "Image"
+      name: "Chemin de l'image"
+      description: "Chemin /local/... d'une image PNG du catalogue."
       required: true
+      example: "/local/images/avatar/Duo/Kenny__Lea__calin.png"
+      selector:
+        text:
+    from_label:
+      name: "Expéditeur"
+      description: "Libellé de l'expéditeur, transmis par la carte (informatif)."
+      required: false
+      example: "Kenny"
+      selector:
+        text:
+    notify_service:
+      name: "Service de notification"
+      description: "Service notify à appeler en plus, avec ou sans le préfixe « notify. » (ex : mobile_app_telephone_de_lea). Laisser vide pour ne pas notifier."
+      required: false
+      example: "mobile_app_telephone_de_lea"
+      selector:
+        text:
 
 force_reimport:
   name: "Réimporter maintenant"
-  description: "Force la vérification et le téléchargement immédiat des poses depuis Avatar Explorer, même si le catalogue est déjà à jour."
+  description: "Force la vérification et le téléchargement des poses manquantes depuis Avatar Explorer, même si le catalogue est déjà à jour."
