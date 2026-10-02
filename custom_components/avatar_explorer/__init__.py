@@ -1,150 +1,187 @@
+"""Intégration Avatar Explorer : poses Bitmoji synchronisées pour Home Assistant."""
+
+from __future__ import annotations
+
 import logging
-import os
-from datetime import timedelta
-import voluptuous as vol
-from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.config_entries import ConfigEntry
+from datetime import datetime, timedelta
+from typing import Any
+
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.components.http import StaticPathConfig
-from . import catalog
-from .const import CONF_UPDATE_INTERVAL_HOURS, DEFAULT_UPDATE_INTERVAL_HOURS, DOMAIN
+from homeassistant.helpers.typing import ConfigType
 
-
-
+from .card import async_register_card
+from .const import (
+    CONF_BITMOJI_ID,
+    CONF_LANG,
+    CONF_SCALE,
+    CONF_UPDATE_INTERVAL_HOURS,
+    CONF_USER_FOLDER,
+    CONF_USERS,
+    DEFAULT_LANG,
+    DEFAULT_SCALE,
+    DEFAULT_UPDATE_INTERVAL_HOURS,
+    DOMAIN,
+    MAX_UPDATE_INTERVAL_HOURS,
+    MIN_UPDATE_INTERVAL_HOURS,
+)
+from .runtime import (
+    AvatarExplorerConfigEntry,
+    AvatarExplorerRuntime,
+    SyncManager,
+    SyncState,
+)
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor", "text", "button"]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.TEXT, Platform.BUTTON]
 
-CARD_URL = "/local/avatar-card.js"
-# Clé volontairement hors de hass.data[DOMAIN] : ce dernier est vidé par entrée
-# dans async_unload_entry, alors que le chemin statique, lui, reste enregistré
-# jusqu'au redémarrage de Home Assistant.
-CARD_REGISTERED_KEY = f"{DOMAIN}_card_registered"
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
-    # 1. ENREGISTREMENT DE LA CARTE (Syntaxe calquée sur ton exemple)
-    # L'URL sera : /avatar_explorer/avatar-card.js
-    #
-    # Le garde-fou CARD_REGISTERED_KEY est indispensable : async_register_static_paths
-    # lève "Path already registered" si le même chemin est enregistré deux fois. Ça
-    # arrive dès qu'on recharge l'intégration depuis l'UI, ou qu'on ajoute une
-    # seconde entrée -- et l'exception ferait échouer tout async_setup_entry, donc
-    # la carte ET les entités. Le drapeau est posé sur hass.data (portée globale,
-    # pas par entrée) car le chemin statique l'est aussi.
-    if not hass.data.get(CARD_REGISTERED_KEY):
-        hass.data[CARD_REGISTERED_KEY] = True
-        await hass.http.async_register_static_paths([
-            StaticPathConfig(
-                CARD_URL,
-                hass.config.path("custom_components", DOMAIN, "avatar-card.js"),
-                False
-            )
-        ])
-        _LOGGER.debug("Registered static path for avatar-card.js")
-
-        # 2. ENREGISTREMENT AUTOMATIQUE DANS LOVELACE
-        if "lovelace" in hass.data:
-            try:
-                resources = hass.data["lovelace"].resources
-                if resources and not any(res.get("url") == CARD_URL for res in resources.async_items()):
-                    await resources.async_create_item({"res_type": "module", "url": CARD_URL})
-                    _LOGGER.debug("Registered Lovelace resource for avatar-card.js")
-            except Exception as e:
-                _LOGGER.warning("Could not auto-register Lovelace resource: %s", e)
-
-    # 3. DÉFINITION DES SERVICES (ACTIONS)
-    async def handle_set_avatar(call: ServiceCall):
-        user_id = call.data.get("user_id").lower()
-        image_path = call.data.get("image_path")
-        await hass.services.async_call("text", "set_value", {
-            "entity_id": f"text.avatar_{user_id}",
-            "value": image_path
-        })
-
-    async def handle_send_emoji(call: ServiceCall):
-        from_label = call.data.get("from_label", "Duo")
-        to_id = call.data.get("to_user").lower()
-        image_path = call.data.get("image_path")
-        notify_service = call.data.get("notify_service") # Ex: mobile_app_iphone_de_kenny
-
-        # 1. Mise à jour de la tablette
-        await hass.services.async_call("text", "set_value", {
-            "entity_id": f"text.emoji_recu_{to_id}",
-            "value": image_path
-        })
-
-        # 2. Envoi direct à l'équipement (si configuré dans la carte)
-        if notify_service:
-            # On enlève "notify." si l'utilisateur l'a laissé
-            service_name = notify_service.replace("notify.", "")
-
-            await hass.services.async_call("notify", service_name, {
-                #"title": f"Message de {from_label}",
-                "title": f"Nouveau message",
-                "message": "Tu as reçu un nouveau Emoji !",
-                "data": {
-                    "image": image_path
-                    #"clickAction": "/lovelace-tablette/0"
-                }
-            })
-
-    async def handle_force_reimport(call: ServiceCall):
-        for e in hass.config_entries.async_entries(DOMAIN):
-            hass.async_create_task(catalog.async_check_for_update(hass, e, force=True))
-
-    hass.services.async_register(DOMAIN, "set_avatar", handle_set_avatar)
-    hass.services.async_register(DOMAIN, "send_emoji", handle_send_emoji)
-    hass.services.async_register(DOMAIN, "force_reimport", handle_force_reimport)
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # 4. VÉRIFICATION PÉRIODIQUE DU CATALOGUE AVATAR EXPLORER
-    def _schedule_interval():
-        hours = entry.options.get(CONF_UPDATE_INTERVAL_HOURS, DEFAULT_UPDATE_INTERVAL_HOURS)
-        return async_track_time_interval(
-            hass,
-            lambda now: hass.async_create_task(catalog.async_check_for_update(hass, entry)),
-            timedelta(hours=hours),
-        )
-
-    hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})["unsub_interval"] = _schedule_interval()
-    hass.async_create_task(catalog.async_check_for_update(hass, entry))
-
-    async def _async_options_updated(hass, entry):
-        data = hass.data[DOMAIN][entry.entry_id]
-        if data.get("unsub_interval"):
-            data["unsub_interval"]()
-        data["unsub_interval"] = _schedule_interval()
-
-        # Drapeaux posés par le flux d'options.
-        #
-        # pending_refresh_all : ID Bitmoji ou qualité modifiés. Les fichiers
-        # générés portent les mêmes noms mais un contenu différent, donc le
-        # différentiel les sauterait tous : il faut tout réécrire.
-        if data.pop("pending_refresh_all", False):
-            _LOGGER.info("ID Bitmoji ou qualité modifiés : réimport complet déclenché")
-            hass.async_create_task(
-                catalog.async_check_for_update(hass, entry, force=True, refresh_all=True)
-            )
-        # pending_resync : langue modifiée. Les titres étant traduits, les noms
-        # de fichiers changent : le différentiel suffit, mais il faut forcer un
-        # passage car l'horodatage du catalogue distant, lui, n'a pas bougé.
-        elif data.pop("pending_resync", False):
-            _LOGGER.info("Langue modifiée : synchronisation déclenchée")
-            hass.async_create_task(
-                catalog.async_check_for_update(hass, entry, force=True)
-            )
-
-    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
-
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Mise en place globale : actions et carte, une seule fois par démarrage."""
+    async_setup_services(hass)
+    await async_register_card(hass)
     return True
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+
+def update_interval_hours(options: dict[str, Any]) -> int:
+    """Intervalle de vérification, borné.
+
+    Une entrée existante peut contenir une valeur hors bornes (le formulaire
+    ne les imposait pas) : 0 donnerait une boucle serrée.
+    """
+    try:
+        hours = int(
+            options.get(CONF_UPDATE_INTERVAL_HOURS, DEFAULT_UPDATE_INTERVAL_HOURS)
+        )
+    except (TypeError, ValueError):
+        hours = DEFAULT_UPDATE_INTERVAL_HOURS
+    return max(MIN_UPDATE_INTERVAL_HOURS, min(MAX_UPDATE_INTERVAL_HOURS, hours))
+
+
+def _config_snapshot(entry: AvatarExplorerConfigEntry) -> dict[str, Any]:
+    """Valeurs qui pilotent la synchro, pour détecter ce qui a changé."""
+    return {
+        "ids": {
+            u.get(CONF_USER_FOLDER): u.get(CONF_BITMOJI_ID) or ""
+            for u in entry.data.get(CONF_USERS, [])
+        },
+        "scale": str(entry.options.get(CONF_SCALE, DEFAULT_SCALE)),
+        "lang": entry.options.get(CONF_LANG, DEFAULT_LANG),
+        "interval": update_interval_hours(entry.options),
+    }
+
+
+@callback
+def _async_schedule_interval(
+    hass: HomeAssistant, entry: AvatarExplorerConfigEntry
+) -> None:
+    """(Re)programme la vérification périodique du catalogue.
+
+    L'ancienne version passait une lambda à async_track_time_interval. Ni
+    coroutine ni @callback, elle était exécutée dans un thread de l'executor,
+    où hass.async_create_task lève une RuntimeError : aucune vérification
+    périodique n'a jamais eu lieu, seulement celle du démarrage.
+    """
+    runtime = entry.runtime_data
+    runtime.async_cancel_interval()
+    hours = runtime.config_snapshot["interval"]
+
+    @callback
+    def _async_tick(_now: datetime) -> None:
+        _LOGGER.debug("Vérification périodique du catalogue Avatar Explorer")
+        runtime.sync.async_request()
+
+    runtime.unsub_interval = async_track_time_interval(
+        hass,
+        _async_tick,
+        timedelta(hours=hours),
+        name=f"{DOMAIN} vérification périodique",
+    )
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: AvatarExplorerConfigEntry
+) -> bool:
+    """Charge une entrée : état de synchro, entités, timer, première vérification."""
+    state = SyncState(hass, entry.entry_id)
+    await state.async_load()
+    runtime = AvatarExplorerRuntime(
+        state=state,
+        sync=SyncManager(hass, entry, state),
+        config_snapshot=_config_snapshot(entry),
+    )
+    entry.runtime_data = runtime
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    _async_schedule_interval(hass, entry)
+    entry.async_on_unload(runtime.async_cancel_interval)
+    entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
+
+    # Première vérification en tâche de fond : elle ne retarde pas le
+    # démarrage et sera annulée si l'entrée est déchargée entre-temps.
+    runtime.sync.async_request()
+    return True
+
+
+async def _async_entry_updated(
+    hass: HomeAssistant, entry: AvatarExplorerConfigEntry
+) -> None:
+    """Réagit à une modification des données ou des options de l'entrée.
+
+    Plutôt que des drapeaux posés par le flux d'options (que l'ancienne
+    version consommait parfois AVANT l'enregistrement des nouvelles options,
+    et synchronisait donc avec les anciennes valeurs), on compare l'entrée
+    actuelle à l'instantané du passage précédent : c'est toujours exact,
+    quel que soit l'ordre des mises à jour.
+    """
+    runtime = entry.runtime_data
+    old = runtime.config_snapshot
+    new = _config_snapshot(entry)
+    runtime.config_snapshot = new
+
+    if new["interval"] != old["interval"]:
+        _LOGGER.info("Intervalle de vérification modifié : %s h", new["interval"])
+        _async_schedule_interval(hass, entry)
+
+    # ID Bitmoji ou qualité modifiés : les fichiers générés portent les mêmes
+    # noms mais un contenu différent, donc le différentiel les sauterait tous :
+    # il faut tout réécrire.
+    if new["ids"] != old["ids"] or new["scale"] != old["scale"]:
+        _LOGGER.info("ID Bitmoji ou qualité modifiés : réimport complet déclenché")
+        runtime.sync.async_request(force=True, refresh_all=True)
+    # Langue modifiée : les titres étant traduits, les noms de fichiers
+    # changent. Le différentiel suffit, mais il faut forcer un passage car
+    # l'horodatage du catalogue distant, lui, n'a pas bougé.
+    elif new["lang"] != old["lang"]:
+        _LOGGER.info("Langue modifiée : synchronisation déclenchée")
+        runtime.sync.async_request(force=True)
+
+
+async def async_unload_entry(
+    hass: HomeAssistant, entry: AvatarExplorerConfigEntry
+) -> bool:
+    """Décharge une entrée (les tâches de fond sont annulées par HA)."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-        if data and data.get("unsub_interval"):
-            data["unsub_interval"]()
+        # Écrit l'état en attente et bloque toute sauvegarde ultérieure : sinon
+        # la sauvegarde différée de cette instance pourrait recréer le fichier
+        # après async_remove_entry (entrée supprimée juste après un passage).
+        await entry.runtime_data.state.async_close()
     return unloaded
+
+
+async def async_remove_entry(
+    hass: HomeAssistant, entry: AvatarExplorerConfigEntry
+) -> None:
+    """Supprime l'état de synchro persistant d'une entrée supprimée.
+
+    Les images, elles, restent dans www/ : elles appartiennent à l'utilisateur.
+    """
+    await SyncState(hass, entry.entry_id).async_remove()

@@ -1,18 +1,14 @@
 {
   "domain": "avatar_explorer",
   "name": "Avatar Explorer",
-  "codeowners": [
-    "@Kenny3231"
-  ],
+  "codeowners": ["@Kenny3231"],
   "config_flow": true,
-  "dependencies": [
-    "http",
-    "person"
-  ],
+  "dependencies": ["http", "lovelace"],
   "documentation": "https://github.com/Kenny3231/avatar_explorer-ha",
-  "icon": "mdi:face-recognition",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/Kenny3231/avatar_explorer-ha/issues",
-  "version": "1.1.0"
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "1.2.0"
 }

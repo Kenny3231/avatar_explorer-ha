@@ -1,0 +1,162 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Avatar Explorer",
+        "description": "Folder where the poses are stored, relative to the Home Assistant www/ folder.",
+        "data": {
+          "dir": "Image folder"
+        },
+        "data_description": {
+          "dir": "Without the leading www/, e.g. images/avatar. Letters, digits, _, - and / only."
+        }
+      },
+      "add_user": {
+        "title": "Add a user",
+        "description": "The Bitmoji ID is not shown on avatar-explorer.pages.dev: that site downloads the images, it does not give you the ID. You can find it on bitmoji.com, once logged in, with the browser developer tools (F12). Expected format: letters, digits, dashes and underscores, e.g. 123456789012_1-s5.",
+        "data": {
+          "user_id_folder": "Folder name",
+          "bitmoji_id": "Bitmoji ID",
+          "ha_person": "Linked Home Assistant person"
+        },
+        "data_description": {
+          "user_id_folder": "Letters, digits, _ and - (32 characters max), e.g. Kenny. \"Duo\" is reserved."
+        }
+      },
+      "choice": {
+        "title": "User added",
+        "menu_options": {
+          "add_user": "Add another user",
+          "finish": "Finish and save"
+        }
+      },
+      "duo_pair": {
+        "title": "Duo mode",
+        "description": "Select the two users who make up the Duo mode.",
+        "data": {
+          "duo_user1": "First user",
+          "duo_user2": "Second user"
+        }
+      },
+      "settings": {
+        "title": "Avatar Explorer synchronization",
+        "description": "The language sets the title and keywords of the poses, and therefore the names of the downloaded files. Each language offers a different number of poses (1261 in French, 1975 in English).",
+        "data": {
+          "update_interval_hours": "Check interval",
+          "scale": "Image quality",
+          "lang": "Catalog language"
+        }
+      }
+    },
+    "error": {
+      "invalid_dir": "Invalid folder: letters, digits, _, - and / only (no \"..\", no empty segment).",
+      "invalid_folder": "Invalid folder name: letters, digits, _ and - only, 32 characters max.",
+      "reserved_folder": "\"Duo\" is reserved for the Duo mode folder.",
+      "duplicate_folder": "This folder name is already used by another user.",
+      "invalid_bitmoji_id": "Invalid Bitmoji ID: letters, digits, dashes and underscores only.",
+      "duo_same_user": "The two Duo mode users must be different."
+    },
+    "abort": {
+      "single_instance_allowed": "Avatar Explorer is already configured. Use Configure to change the settings."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Avatar Explorer synchronization",
+        "description": "Configured users: {users}.\n\nThe Bitmoji ID is not shown on avatar-explorer.pages.dev: you can find it on bitmoji.com, once logged in, with the browser developer tools (F12). Expected format: letters, digits, dashes and underscores, e.g. 123456789012_1-s5.\n\n⚠️ Changing a Bitmoji ID or the quality triggers a full re-import (same file names, different content).\n\n⚠️ Changing the language downloads a whole new set of images: file names come from the translated titles. Old images stay on disk and the avatars currently displayed will have to be selected again.",
+        "data": {
+          "update_interval_hours": "Check interval",
+          "scale": "Image quality",
+          "lang": "Catalog language"
+        }
+      }
+    },
+    "error": {
+      "invalid_bitmoji_id": "Invalid Bitmoji ID: letters, digits, dashes and underscores only."
+    }
+  },
+  "selector": {
+    "scale": {
+      "options": {
+        "1": "Web - lightest (recommended)",
+        "2": "HD - twice as detailed",
+        "4": "Ultra - four times as detailed, heavy files"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sync_status": {
+        "state": {
+          "inconnu": "Unknown",
+          "a_jour": "Up to date",
+          "partielle": "Partial",
+          "erreur": "Error"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "unknown_user": {
+      "message": "Unknown Avatar Explorer user: {user}."
+    },
+    "unknown_notify_service": {
+      "message": "Notification service not found: {service}."
+    },
+    "not_loaded": {
+      "message": "No Avatar Explorer entry is loaded."
+    },
+    "invalid_image_path": {
+      "message": "Invalid image path: {value}. Expected format: /local/FOLDER/USER/POSE.png."
+    }
+  },
+  "services": {
+    "set_avatar": {
+      "name": "Set avatar",
+      "description": "Sets a user's profile picture (text.avatar_USER entity).",
+      "fields": {
+        "user_id": {
+          "name": "User",
+          "description": "User folder name, as configured in the integration (e.g. Kenny)."
+        },
+        "image_path": {
+          "name": "Image path",
+          "description": "/local/... path of a PNG image from the catalog."
+        }
+      }
+    },
+    "send_emoji": {
+      "name": "Send emoji",
+      "description": "Sends a pose to another user (text.emoji_recu_USER entity), with an optional notification.",
+      "fields": {
+        "to_user": {
+          "name": "Recipient",
+          "description": "Folder name of the recipient user (e.g. Lea)."
+        },
+        "image_path": {
+          "name": "Image path",
+          "description": "/local/... path of a PNG image from the catalog."
+        },
+        "from_label": {
+          "name": "Sender",
+          "description": "Sender label, sent by the card (informational)."
+        },
+        "notify_service": {
+          "name": "Notification service",
+          "description": "Notify service to call as well, with or without the \"notify.\" prefix (e.g. mobile_app_leas_phone). Leave empty for no notification."
+        }
+      }
+    },
+    "force_reimport": {
+      "name": "Re-import now",
+      "description": "Forces a check and downloads the missing poses from Avatar Explorer, even if the catalog is already up to date."
+    }
+  },
+  "issues": {
+    "lovelace_yaml_resource": {
+      "title": "Avatar Explorer card: update the Lovelace resource",
+      "description": "Your dashboards use YAML mode, so the integration cannot update the card resource itself. The card is now served at a new URL: the old {legacy_url} no longer works.\n\nIn configuration.yaml, under lovelace: resources:, replace the card entry with:\n\n- url: {url}\n  type: module\n\nThen restart Home Assistant. This issue disappears once the resource is up to date."
+    }
+  }
+}

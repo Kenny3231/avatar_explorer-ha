@@ -1,40 +1,48 @@
-"""Boutons de synchronisation manuelle du catalogue Avatar Explorer."""
+"""Boutons de synchronisation manuelle du catalogue Avatar Explorer.
+
+Un appui rend la main immédiatement : la synchro (plusieurs minutes au
+premier import) tourne en tâche de fond. L'ancienne version attendait la fin,
+ce qui bloquait aussi les scripts et automatisations qui appuient dessus.
+"""
+
+from __future__ import annotations
 
 import logging
 
 from homeassistant.components.button import ButtonEntity
+from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import catalog
-from .const import DOMAIN, SYSTEM_DEVICE_ID
+from .const import DOMAIN
+from .entity import SYSTEM_DEVICE_INFO
+from .runtime import AvatarExplorerConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
-SYSTEM_DEVICE_INFO = {
-    "identifiers": {(DOMAIN, SYSTEM_DEVICE_ID)},
-    "name": "Avatar Explorer",
-    "manufacturer": "Avatar Explorer",
-    "model": "Système",
-}
 
-
-async def async_setup_entry(hass, entry, async_add_entities):
-    async_add_entities([
-        AvatarSyncButton(hass, entry),
-        AvatarFullReimportButton(hass, entry),
-        AvatarCleanupButton(hass, entry),
-    ])
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: AvatarExplorerConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Crée les boutons de l'entrée."""
+    async_add_entities(
+        [
+            AvatarSyncButton(entry),
+            AvatarFullReimportButton(entry),
+            AvatarCleanupButton(entry),
+        ]
+    )
 
 
 class _BaseSyncButton(ButtonEntity):
     _attr_should_poll = False
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_device_info = SYSTEM_DEVICE_INFO
 
-    def __init__(self, hass, entry):
-        self._hass = hass
+    def __init__(self, entry: AvatarExplorerConfigEntry) -> None:
         self._entry = entry
-
-    @property
-    def device_info(self):
-        return SYSTEM_DEVICE_INFO
 
 
 class AvatarSyncButton(_BaseSyncButton):
@@ -42,15 +50,17 @@ class AvatarSyncButton(_BaseSyncButton):
 
     _attr_icon = "mdi:cloud-sync"
 
-    def __init__(self, hass, entry):
-        super().__init__(hass, entry)
+    def __init__(self, entry: AvatarExplorerConfigEntry) -> None:
+        """Initialise le bouton (identifiants historiques)."""
+        super().__init__(entry)
         self.entity_id = "button.avatar_explorer_sync"
         self._attr_name = "Avatar Explorer Synchroniser maintenant"
         self._attr_unique_id = f"{DOMAIN}_sync_button_{entry.entry_id}"
 
     async def async_press(self) -> None:
+        """Demande une synchro forcée, en tâche de fond."""
         _LOGGER.debug("Synchronisation manuelle demandée")
-        await catalog.async_check_for_update(self._hass, self._entry, force=True)
+        self._entry.runtime_data.sync.async_request(force=True)
 
 
 class AvatarFullReimportButton(_BaseSyncButton):
@@ -63,17 +73,17 @@ class AvatarFullReimportButton(_BaseSyncButton):
     _attr_icon = "mdi:cloud-refresh"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, hass, entry):
-        super().__init__(hass, entry)
+    def __init__(self, entry: AvatarExplorerConfigEntry) -> None:
+        """Initialise le bouton (identifiants historiques)."""
+        super().__init__(entry)
         self.entity_id = "button.avatar_explorer_reimport_complet"
         self._attr_name = "Avatar Explorer Réimport complet"
         self._attr_unique_id = f"{DOMAIN}_reimport_button_{entry.entry_id}"
 
     async def async_press(self) -> None:
+        """Demande un réimport complet, en tâche de fond."""
         _LOGGER.info("Réimport complet demandé : tous les fichiers seront réécrits")
-        await catalog.async_check_for_update(
-            self._hass, self._entry, force=True, refresh_all=True
-        )
+        self._entry.runtime_data.sync.async_request(force=True, refresh_all=True)
 
 
 class AvatarCleanupButton(_BaseSyncButton):
@@ -87,18 +97,31 @@ class AvatarCleanupButton(_BaseSyncButton):
     _attr_icon = "mdi:broom"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, hass, entry):
-        super().__init__(hass, entry)
+    def __init__(self, entry: AvatarExplorerConfigEntry) -> None:
+        """Initialise le bouton (identifiants historiques)."""
+        super().__init__(entry)
         self.entity_id = "button.avatar_explorer_nettoyer_orphelins"
         self._attr_name = "Avatar Explorer Nettoyer les orphelins"
         self._attr_unique_id = f"{DOMAIN}_cleanup_button_{entry.entry_id}"
 
     async def async_press(self) -> None:
+        """Lance le nettoyage en tâche de fond."""
         _LOGGER.info("Nettoyage des orphelins demandé")
-        deleted, protected, failed = await catalog.async_delete_orphans(
-            self._hass, self._entry
+        self._entry.async_create_background_task(
+            self.hass,
+            self._async_cleanup(),
+            f"{DOMAIN} nettoyage des orphelins",
         )
+
+    async def _async_cleanup(self) -> None:
+        (
+            deleted,
+            protected,
+            failed,
+        ) = await self._entry.runtime_data.sync.async_delete_orphans()
         _LOGGER.info(
             "Nettoyage : %s supprimé(s), %s protégé(s) car utilisé(s), %s échec(s)",
-            deleted, protected, failed,
+            deleted,
+            protected,
+            failed,
         )
